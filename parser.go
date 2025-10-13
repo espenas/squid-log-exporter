@@ -79,28 +79,30 @@ func extractHostPort(requestURL string) string {
 
 // trackDomainRequest tracks statistics for a monitored domain
 func (mc *MetricsCollector) trackDomainRequest(hostPort string, duration float64) {
-    if len(mc.monitoredHosts) == 0 || !mc.monitoredHosts[hostPort] {
-        return
-    }
+	labels, exists := mc.monitoredHosts[hostPort]
+	if !exists {
+		return
+	}
 
-    stats, exists := mc.domainStats[hostPort]
-    if !exists {
-        stats = &DomainStats{
-            minDuration: duration,
-            maxDuration: duration,
-        }
-        mc.domainStats[hostPort] = stats
-    }
+	stats, statsExists := mc.domainStats[hostPort]
+	if !statsExists {
+		stats = &DomainStats{
+			minDuration: duration,
+			maxDuration: duration,
+			labels:      labels,
+		}
+		mc.domainStats[hostPort] = stats
+	}
 
-    stats.count++
-    stats.totalDuration += duration
+	stats.count++
+	stats.totalDuration += duration
 
-    if duration > stats.maxDuration {
-        stats.maxDuration = duration
-    }
-    if duration < stats.minDuration {
-        stats.minDuration = duration
-    }
+	if duration > stats.maxDuration {
+		stats.maxDuration = duration
+	}
+	if duration < stats.minDuration {
+		stats.minDuration = duration
+	}
 }
 
 func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64) (map[string]int, map[string]int, int, map[string]map[string]int, error) {

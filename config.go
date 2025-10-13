@@ -175,34 +175,38 @@ func validateConfig(config *Config) error {
 
 // loadMonitoredDomains loads the list of domains to monitor
 func (mc *MetricsCollector) loadMonitoredDomains() error {
-    if mc.config.MonitoredDomainsPath == "" {
-        return nil // No domains to monitor
-    }
+	if mc.config.MonitoredDomainsPath == "" {
+		return nil // No domains to monitor
+	}
 
-    data, err := os.ReadFile(mc.config.MonitoredDomainsPath)
-    if err != nil {
-        if os.IsNotExist(err) {
-            return nil
-        }
-        return fmt.Errorf("failed to read monitored domains file: %v", err)
-    }
+	data, err := os.ReadFile(mc.config.MonitoredDomainsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read monitored domains file: %v", err)
+	}
 
-    var domainConfig DomainConfig
-    if err := yaml.Unmarshal(data, &domainConfig); err != nil {
-        return fmt.Errorf("failed to parse monitored domains file: %v", err)
-    }
+	var domainConfig DomainConfig
+	if err := yaml.Unmarshal(data, &domainConfig); err != nil {
+		return fmt.Errorf("failed to parse monitored domains file: %v", err)
+	}
 
-    mc.monitoredHosts = make(map[string]bool)
-    for _, target := range domainConfig.MonitoredTargets {
-        mc.monitoredHosts[target.Host] = true
-    }
+	mc.monitoredHosts = make(map[string]map[string]string)
+	for _, target := range domainConfig.MonitoredTargets {
+		mc.monitoredHosts[target.Host] = target.Labels
+	}
 
-    if mc.logger != nil {
-        mc.logger.Printf("Loaded %d monitored targets", len(mc.monitoredHosts))
-        for host := range mc.monitoredHosts {
-            mc.logger.Printf("  - %s", host)
-        }
-    }
+	if mc.logger != nil {
+		mc.logger.Printf("Loaded %d monitored targets", len(mc.monitoredHosts))
+		for host, labels := range mc.monitoredHosts {
+			if len(labels) > 0 {
+				mc.logger.Printf("  - %s with labels: %v", host, labels)
+			} else {
+				mc.logger.Printf("  - %s (no labels)", host)
+			}
+		}
+	}
 
-    return nil
+	return nil
 }

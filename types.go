@@ -18,85 +18,87 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 package main
 
 import (
-    "fmt"
-    "log"
-    "sync"
-    "time"
+	"fmt"
+	"log"
+	"sync"
+	"time"
 )
 
 type Config struct {
-    AccessLogPath         string `json:"access_log_path"`
-    PositionFilePath      string `json:"position_file_path"`
-    OutputPath            string `json:"output_path"`
-    BufferSize            int    `json:"buffer_size"`
-    LogErrors             bool   `json:"log_errors"`
-    RetryAttempts         int    `json:"retry_attempts"`
-    RetryDelay            string `json:"retry_delay"`
-    LogFilePath           string `json:"log_file_path"`
-    KnownCodesFilePath    string `json:"known_codes_file_path"`
-    KnownStatusFilePath   string `json:"known_status_file_path"`
-    MonitoredDomainsPath  string `json:"monitored_domains_path"`
+	AccessLogPath         string `json:"access_log_path"`
+	PositionFilePath      string `json:"position_file_path"`
+	OutputPath            string `json:"output_path"`
+	BufferSize            int    `json:"buffer_size"`
+	LogErrors             bool   `json:"log_errors"`
+	RetryAttempts         int    `json:"retry_attempts"`
+	RetryDelay            string `json:"retry_delay"`
+	LogFilePath           string `json:"log_file_path"`
+	KnownCodesFilePath    string `json:"known_codes_file_path"`
+	KnownStatusFilePath   string `json:"known_status_file_path"`
+	MonitoredDomainsPath  string `json:"monitored_domains_path"`
 }
 
 // DomainConfig holds monitored domain configuration
 type DomainConfig struct {
-    MonitoredTargets []struct {
-        Host string `yaml:"host"`
-    } `yaml:"monitored_targets"`
+	MonitoredTargets []struct {
+		Host   string            `yaml:"host"`
+		Labels map[string]string `yaml:"labels,omitempty"`
+	} `yaml:"monitored_targets"`
 }
 
 // DomainStats tracks statistics for a specific domain:port
 type DomainStats struct {
-    count         int64
-    totalDuration float64
-    maxDuration   float64
-    minDuration   float64
+	count         int64
+	totalDuration float64
+	maxDuration   float64
+	minDuration   float64
+	labels        map[string]string
 }
 
 // FlagConfig holds command line parameters
 type FlagConfig struct {
-    ConfigFile       string
-    AccessLogPath    string
-    PositionFilePath string
-    OutputPath       string
-    BufferSize       int
-    LogErrors        *bool
-    RetryAttempts    int
-    RetryDelay       string
-    Version          bool
-    DomainsConfig    string
+	ConfigFile       string
+	AccessLogPath    string
+	PositionFilePath string
+	OutputPath       string
+	BufferSize       int
+	LogErrors        *bool
+	RetryAttempts    int
+	RetryDelay       string
+	Version          bool
+	DomainsConfig    string
 }
 
 type MetricsCollector struct {
-    config         Config
-    mutex          sync.Mutex
-    logger         *log.Logger
-    retryDelay     time.Duration
-    knownCodes     map[string]bool
-    knownStatus    map[string]bool
-    codesFile      string
-    statusFile     string
-    monitoredHosts map[string]bool
-    domainStats    map[string]*DomainStats
+	config         Config
+	mutex          sync.Mutex
+	logger         *log.Logger
+	retryDelay     time.Duration
+	knownCodes     map[string]bool
+	knownStatus    map[string]bool
+	codesFile      string
+	statusFile     string
+	monitoredHosts map[string]map[string]string // host -> labels
+	domainStats    map[string]*DomainStats
 }
 
 // Error types for better error handling
 type (
-    FileAccessError struct {
-        Path string
-        Err  error
-    }
+	FileAccessError struct {
+		Path string
+		Err  error
+	}
 
-    ParseError struct {
-        Line string
-        Err  error
-    }
+	ParseError struct {
+		Line string
+		Err  error
+	}
 )
 
 func (e *FileAccessError) Error() string {
-    return fmt.Sprintf("failed to access file %s: %v", e.Path, e.Err)
+	return fmt.Sprintf("failed to access file %s: %v", e.Path, e.Err)
 }
 
 func (e *ParseError) Error() string {
-    return fmt.Sprintf("failed to parse line %s: %v", e.Line, e.Err)
+	return fmt.Sprintf("failed to parse line %s: %v", e.Line, e.Err)
 }

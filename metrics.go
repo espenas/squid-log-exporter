@@ -125,8 +125,23 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 			host := parts[0]
 			port := parts[1]
 
-			if _, err := fmt.Fprintf(tmpfile, "squid_domain_requests_total{host=\"%s\",port=\"%s\"} %d\n",
-				host, port, stats.count); err != nil {
+			// Build label string with custom labels
+			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
+			
+			if len(stats.labels) > 0 {
+				var labelKeys []string
+				for key := range stats.labels {
+					labelKeys = append(labelKeys, key)
+				}
+				sort.Strings(labelKeys)
+				
+				for _, key := range labelKeys {
+					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
+				}
+			}
+
+			if _, err := fmt.Fprintf(tmpfile, "squid_domain_requests_total{%s} %d\n",
+				labelStr, stats.count); err != nil {
 				return fmt.Errorf("failed to write domain metrics: %v", err)
 			}
 		}
@@ -151,9 +166,24 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 			host := parts[0]
 			port := parts[1]
 
+			// Build label string with custom labels
+			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
+			
+			if len(stats.labels) > 0 {
+				var labelKeys []string
+				for key := range stats.labels {
+					labelKeys = append(labelKeys, key)
+				}
+				sort.Strings(labelKeys)
+				
+				for _, key := range labelKeys {
+					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
+				}
+			}
+
 			avgDuration := stats.totalDuration / float64(stats.count)
-			if _, err := fmt.Fprintf(tmpfile, "squid_domain_avg_duration_seconds{host=\"%s\",port=\"%s\"} %.6f\n",
-				host, port, avgDuration); err != nil {
+			if _, err := fmt.Fprintf(tmpfile, "squid_domain_avg_duration_seconds{%s} %.6f\n",
+				labelStr, avgDuration); err != nil {
 				return fmt.Errorf("failed to write domain avg metrics: %v", err)
 			}
 		}
@@ -178,8 +208,23 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 			host := parts[0]
 			port := parts[1]
 
-			if _, err := fmt.Fprintf(tmpfile, "squid_domain_max_duration_seconds{host=\"%s\",port=\"%s\"} %.6f\n",
-				host, port, stats.maxDuration); err != nil {
+			// Build label string with custom labels
+			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
+			
+			if len(stats.labels) > 0 {
+				var labelKeys []string
+				for key := range stats.labels {
+					labelKeys = append(labelKeys, key)
+				}
+				sort.Strings(labelKeys)
+				
+				for _, key := range labelKeys {
+					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
+				}
+			}
+
+			if _, err := fmt.Fprintf(tmpfile, "squid_domain_max_duration_seconds{%s} %.6f\n",
+				labelStr, stats.maxDuration); err != nil {
 				return fmt.Errorf("failed to write domain max metrics: %v", err)
 			}
 		}
@@ -204,15 +249,29 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 			host := parts[0]
 			port := parts[1]
 
-			if _, err := fmt.Fprintf(tmpfile, "squid_domain_min_duration_seconds{host=\"%s\",port=\"%s\"} %.6f\n",
-				host, port, stats.minDuration); err != nil {
+			// Build label string with custom labels
+			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
+			
+			if len(stats.labels) > 0 {
+				var labelKeys []string
+				for key := range stats.labels {
+					labelKeys = append(labelKeys, key)
+				}
+				sort.Strings(labelKeys)
+				
+				for _, key := range labelKeys {
+					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
+				}
+			}
+
+			if _, err := fmt.Fprintf(tmpfile, "squid_domain_min_duration_seconds{%s} %.6f\n",
+				labelStr, stats.minDuration); err != nil {
 				return fmt.Errorf("failed to write domain min metrics: %v", err)
 			}
 		}
 		if _, err := fmt.Fprintln(tmpfile); err != nil {
 			return fmt.Errorf("failed to write separator: %v", err)
 		}
-
 	}
 
 	// Write HTTP response metrics
