@@ -33,6 +33,7 @@ The exporter generates the following metrics:
 - `squid_domain_avg_duration_seconds{host,port,...}`: Average connection duration per domain
 - `squid_domain_max_duration_seconds{host,port,...}`: Longest connection duration per domain
 - `squid_domain_min_duration_seconds{host,port,...}`: Shortest connection duration per domain
+- `squid_domain_http_responses_total{host,port,code,category,...}`: HTTP response codes per monitored domain
 
 **Note:** Domain metrics include TCP_TUNNEL connections, as these represent the majority of modern HTTPS traffic. All domain metrics automatically include any custom labels you define.
 
@@ -237,6 +238,14 @@ squid_domain_max_duration_seconds{host="example.com",port="443",environment="pro
 # TYPE squid_domain_min_duration_seconds gauge
 squid_domain_min_duration_seconds{host="example.com",port="443",environment="production",orgid="org123"} 0.089123
 
+# HELP squid_domain_http_responses_total HTTP response codes per monitored domain
+# TYPE squid_domain_http_responses_total counter
+squid_domain_http_responses_total{host="example.com",port="443",category="2xx",code="200",environment="production",orgid="org123"} 1450
+squid_domain_http_responses_total{host="example.com",port="443",category="4xx",code="404",environment="production",orgid="org123"} 23
+squid_domain_http_responses_total{host="example.com",port="443",category="5xx",code="503",environment="production",orgid="org123"} 5
+squid_domain_http_responses_total{host="api.example.com",port="443",category="2xx",code="200",environment="staging",orgid="org456",region="eu-west"} 890
+squid_domain_http_responses_total{host="api.example.com",port="443",category="4xx",code="401",environment="staging",orgid="org456",region="eu-west"} 12
+
 # HELP squid_http_responses_total Total number of HTTP responses by status code and category
 # TYPE squid_http_responses_total counter
 squid_http_responses_total{code="000",category="0xx"} 0
@@ -263,8 +272,7 @@ squid_cache_status_total{status="TCP_TUNNEL"} 3166
 ## Use Cases for Custom Labels
 
 Custom labels enable powerful filtering and aggregation in Prometheus queries:
-
-```proql
+```promql
 # Total requests per organization
 sum by (orgid) (squid_domain_requests_total)
 
@@ -276,6 +284,23 @@ sum by (region) (squid_domain_requests_total)
 
 # Compare test instances
 squid_domain_requests_total{testid=~"test.*"}
+
+# Error rate per domain (4xx + 5xx)
+sum by (host) (squid_domain_http_responses_total{category=~"4xx|5xx"})
+
+# Success rate per domain
+sum by (host) (squid_domain_http_responses_total{category="2xx"}) 
+  / sum by (host) (squid_domain_http_responses_total)
+
+# All 5xx errors per organization
+sum by (orgid) (squid_domain_http_responses_total{category="5xx"})
+
+# Domains with most 404 errors
+topk(5, squid_domain_http_responses_total{code="404"})
+
+# Error percentage per environment
+sum by (environment) (squid_domain_http_responses_total{category=~"4xx|5xx"})
+  / sum by (environment) (squid_domain_http_responses_total) * 100
 ```
 
 ### Project Structure

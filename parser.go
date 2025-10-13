@@ -78,7 +78,7 @@ func extractHostPort(requestURL string) string {
 }
 
 // trackDomainRequest tracks statistics for a monitored domain
-func (mc *MetricsCollector) trackDomainRequest(hostPort string, duration float64) {
+func (mc *MetricsCollector) trackDomainRequest(hostPort string, duration float64, httpCode string) {
 	labels, exists := mc.monitoredHosts[hostPort]
 	if !exists {
 		return
@@ -90,6 +90,7 @@ func (mc *MetricsCollector) trackDomainRequest(hostPort string, duration float64
 			minDuration: duration,
 			maxDuration: duration,
 			labels:      labels,
+			httpCodes:   make(map[string]int64),
 		}
 		mc.domainStats[hostPort] = stats
 	}
@@ -102,6 +103,11 @@ func (mc *MetricsCollector) trackDomainRequest(hostPort string, duration float64
 	}
 	if duration < stats.minDuration {
 		stats.minDuration = duration
+	}
+
+	// Track HTTP status code
+	if httpCode != "" {
+		stats.httpCodes[httpCode]++
 	}
 }
 
@@ -199,8 +205,15 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
                     if len(fields) >= 7 {
                         requestURL := fields[6]
                         hostPort := extractHostPort(requestURL)
+
+                        // Extract HTTP code
+                        var httpCode string
+                        if len(parts) > 1 {
+                            httpCode = parts[1]
+                        }
+
                         if hostPort != "" {
-                            mc.trackDomainRequest(hostPort, durationSeconds)
+                            mc.trackDomainRequest(hostPort, durationSeconds, httpCode)
                         }
                     }
 

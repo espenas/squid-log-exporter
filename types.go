@@ -53,6 +53,7 @@ type DomainStats struct {
 	maxDuration   float64
 	minDuration   float64
 	labels        map[string]string
+	httpCodes     map[string]int64
 }
 
 // FlagConfig holds command line parameters

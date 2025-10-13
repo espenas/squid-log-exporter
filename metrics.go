@@ -127,14 +127,14 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 
 			// Build label string with custom labels
 			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
-			
+
 			if len(stats.labels) > 0 {
 				var labelKeys []string
 				for key := range stats.labels {
 					labelKeys = append(labelKeys, key)
 				}
 				sort.Strings(labelKeys)
-				
+
 				for _, key := range labelKeys {
 					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
 				}
@@ -168,14 +168,14 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 
 			// Build label string with custom labels
 			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
-			
+
 			if len(stats.labels) > 0 {
 				var labelKeys []string
 				for key := range stats.labels {
 					labelKeys = append(labelKeys, key)
 				}
 				sort.Strings(labelKeys)
-				
+
 				for _, key := range labelKeys {
 					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
 				}
@@ -210,14 +210,14 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 
 			// Build label string with custom labels
 			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
-			
+
 			if len(stats.labels) > 0 {
 				var labelKeys []string
 				for key := range stats.labels {
 					labelKeys = append(labelKeys, key)
 				}
 				sort.Strings(labelKeys)
-				
+
 				for _, key := range labelKeys {
 					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
 				}
@@ -251,14 +251,14 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 
 			// Build label string with custom labels
 			labelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
-			
+
 			if len(stats.labels) > 0 {
 				var labelKeys []string
 				for key := range stats.labels {
 					labelKeys = append(labelKeys, key)
 				}
 				sort.Strings(labelKeys)
-				
+
 				for _, key := range labelKeys {
 					labelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
 				}
@@ -272,7 +272,65 @@ func (mc *MetricsCollector) writeMetrics(codeCounts map[string]int, cacheCounts 
 		if _, err := fmt.Fprintln(tmpfile); err != nil {
 			return fmt.Errorf("failed to write separator: %v", err)
 		}
+
+                // HTTP status codes per domain
+		if _, err := fmt.Fprintf(tmpfile, "# HELP squid_domain_http_responses_total HTTP response codes per monitored domain\n"); err != nil {
+			return fmt.Errorf("failed to write domain http help: %v", err)
+		}
+		if _, err := fmt.Fprintf(tmpfile, "# TYPE squid_domain_http_responses_total counter\n"); err != nil {
+			return fmt.Errorf("failed to write domain http type: %v", err)
+		}
+
+		for _, hostPort := range hostPorts {
+			stats := mc.domainStats[hostPort]
+			parts := strings.Split(hostPort, ":")
+			if len(parts) != 2 {
+				continue
+			}
+			host := parts[0]
+			port := parts[1]
+
+			// Build base label string
+			baseLabelStr := fmt.Sprintf("host=\"%s\",port=\"%s\"", host, port)
+
+			// Add custom labels
+			if len(stats.labels) > 0 {
+				var labelKeys []string
+				for key := range stats.labels {
+					labelKeys = append(labelKeys, key)
+				}
+				sort.Strings(labelKeys)
+
+				for _, key := range labelKeys {
+					baseLabelStr += fmt.Sprintf(",%s=\"%s\"", key, stats.labels[key])
+				}
+			}
+
+			// Write metrics for each HTTP code
+			// Sort codes for consistent output
+			var codes []string
+			for code := range stats.httpCodes {
+				codes = append(codes, code)
+			}
+			sort.Strings(codes)
+
+			for _, code := range codes {
+				count := stats.httpCodes[code]
+				category := code[:1] + "xx"
+				labelStr := baseLabelStr + fmt.Sprintf(",code=\"%s\",category=\"%s\"", code, category)
+
+				if _, err := fmt.Fprintf(tmpfile, "squid_domain_http_responses_total{%s} %d\n",
+					labelStr, count); err != nil {
+					return fmt.Errorf("failed to write domain http metrics: %v", err)
+				}
+			}
+		}
+		if _, err := fmt.Fprintln(tmpfile); err != nil {
+			return fmt.Errorf("failed to write separator: %v", err)
+		}
+
 	}
+
 
 	// Write HTTP response metrics
 	if _, err := fmt.Fprintf(tmpfile, "# HELP squid_http_responses_total Total number of HTTP responses by status code and category\n"); err != nil {
