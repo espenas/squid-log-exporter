@@ -163,8 +163,8 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
         bytesRead = lastPosition
     }
 
-    totalDurationNonTunnel := 0.0
-    totalConnectionsNonTunnel := 0
+    totalDuration := 0.0
+    totalConnectionsWithDuration := 0
 
     for scanner.Scan() {
         line := scanner.Text()
@@ -194,7 +194,7 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
                 }
             }
 
-            // Parse duration for all connections (including TCP_TUNNEL for domain tracking)
+            // Parse duration for all connections (including TCP_TUNNEL)
             var duration float64
             if len(fields) >= 2 {
                 if durationMs, err := strconv.ParseFloat(fields[1], 64); err == nil {
@@ -217,43 +217,41 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
                         }
                     }
 
-                    // Only process duration buckets for non-TUNNEL connections
-                    if matches := cacheRegex.FindStringSubmatch(parts[0]); len(matches) > 1 && matches[1] != "TCP_TUNNEL" {
-                        totalDurationNonTunnel += duration
-                        totalConnectionsNonTunnel++
+                    // Process duration buckets for ALL connections
+                    totalDuration += duration
+                    totalConnectionsWithDuration++
 
-                        // Duration in milliseconds
-                        switch {
-                        case duration <= 200:
-                            durationCounts["ms"]["0-200"]++
-                        case duration <= 400:
-                            durationCounts["ms"]["200-400"]++
-                        case duration <= 600:
-                            durationCounts["ms"]["400-600"]++
-                        case duration <= 800:
-                            durationCounts["ms"]["600-800"]++
-                        case duration <= 1000:
-                            durationCounts["ms"]["800-1000"]++
-                        default:
-                            durationCounts["ms"]["over1000"]++
-                        }
+                    // Duration in milliseconds
+                    switch {
+                    case duration <= 200:
+                        durationCounts["ms"]["0-200"]++
+                    case duration <= 400:
+                        durationCounts["ms"]["200-400"]++
+                    case duration <= 600:
+                        durationCounts["ms"]["400-600"]++
+                    case duration <= 800:
+                        durationCounts["ms"]["600-800"]++
+                    case duration <= 1000:
+                        durationCounts["ms"]["800-1000"]++
+                    default:
+                        durationCounts["ms"]["over1000"]++
+                    }
 
-                        // Duration in seconds
-                        durationSec := duration / 1000.0
-                        switch {
-                        case durationSec <= 1.0:
-                            durationCounts["s"]["0-1"]++
-                        case durationSec <= 2.0:
-                            durationCounts["s"]["1-2"]++
-                        case durationSec <= 3.0:
-                            durationCounts["s"]["2-3"]++
-                        case durationSec <= 4.0:
-                            durationCounts["s"]["3-4"]++
-                        case durationSec <= 5.0:
-                            durationCounts["s"]["4-5"]++
-                        default:
-                            durationCounts["s"]["over5"]++
-                        }
+                    // Duration in seconds
+                    durationSec := duration / 1000.0
+                    switch {
+                    case durationSec <= 1.0:
+                        durationCounts["s"]["0-1"]++
+                    case durationSec <= 2.0:
+                        durationCounts["s"]["1-2"]++
+                    case durationSec <= 3.0:
+                        durationCounts["s"]["2-3"]++
+                    case durationSec <= 4.0:
+                        durationCounts["s"]["3-4"]++
+                    case durationSec <= 5.0:
+                        durationCounts["s"]["4-5"]++
+                    default:
+                        durationCounts["s"]["over5"]++
                     }
                 }
             }
@@ -288,13 +286,12 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
     // Log some statistics if error logging is enabled
     if mc.logger != nil {
         avgDuration := 0.0
-        if totalConnectionsNonTunnel > 0 {
-            avgDuration = totalDurationNonTunnel / float64(totalConnectionsNonTunnel)
+        if totalConnectionsWithDuration > 0 {
+            avgDuration = totalDuration / float64(totalConnectionsWithDuration)
         }
         mc.logger.Printf(
-            "Processed %d total connections (%d non-tunnel). Average duration for non-tunnel requests: %.2fms",
+            "Processed %d total connections. Average duration: %.2fms",
             totalConnections,
-            totalConnectionsNonTunnel,
             avgDuration,
         )
 

@@ -7,7 +7,7 @@ A lightweight and efficient metrics exporter for Squid proxy access logs. This t
 - Parses Squid access logs and generates Prometheus-compatible metrics
 - Tracks HTTP response codes and their categories (2xx, 3xx, 4xx, 5xx). HTTP response codes are stored in a file to be able to count 0 instances.
 - Monitors cache status (TCP_HIT, TCP_MISS, TCP_DENIED, TCP_TUNNEL). Cache statuses are stored in a file to be able to count 0 instances.
-- Measures request durations in both milliseconds and seconds (TCP_TUNNEL is excluded from duration buckets)
+- Measures request durations in both milliseconds and seconds for all connection types
 - **Domain-specific monitoring** - Track requests, average/min/max duration for specific domains
 - **Custom labels** - Add your own labels (orgid, instid, environment, etc.) to domain metrics for flexible grouping and filtering
 - Maintains state across restarts using position tracking
@@ -35,7 +35,7 @@ The exporter generates the following metrics:
 - `squid_domain_min_duration_seconds{host,port,...}`: Shortest connection duration per domain
 - `squid_domain_http_responses_total{host,port,code,category,...}`: HTTP response codes per monitored domain
 
-**Note:** Domain metrics include TCP_TUNNEL connections, as these represent the majority of modern HTTPS traffic. All domain metrics automatically include any custom labels you define.
+**Note:** All duration metrics include TCP_TUNNEL connections, as these represent the majority of modern HTTPS traffic (HTTPS). Domain metrics automatically include any custom labels you define.
 
 ## Installation
 ```bash
@@ -202,21 +202,21 @@ squid_connections_total 3302
 
 # HELP squid_request_duration_milliseconds_total Number of requests by duration interval in milliseconds
 # TYPE squid_request_duration_milliseconds_total counter
-squid_request_duration_milliseconds_total{interval="0-200"} 130
-squid_request_duration_milliseconds_total{interval="200-400"} 4
-squid_request_duration_milliseconds_total{interval="400-600"} 1
-squid_request_duration_milliseconds_total{interval="600-800"} 0
-squid_request_duration_milliseconds_total{interval="800-1000"} 0
-squid_request_duration_milliseconds_total{interval="over1000"} 1
+squid_request_duration_milliseconds_total{interval="0-200"} 2450
+squid_request_duration_milliseconds_total{interval="200-400"} 623
+squid_request_duration_milliseconds_total{interval="400-600"} 156
+squid_request_duration_milliseconds_total{interval="600-800"} 48
+squid_request_duration_milliseconds_total{interval="800-1000"} 18
+squid_request_duration_milliseconds_total{interval="over1000"} 7
 
 # HELP squid_request_duration_seconds_total Number of requests by duration interval in seconds
 # TYPE squid_request_duration_seconds_total counter
-squid_request_duration_seconds_total{interval="0-1"} 135
-squid_request_duration_seconds_total{interval="1-2"} 1
-squid_request_duration_seconds_total{interval="2-3"} 0
-squid_request_duration_seconds_total{interval="3-4"} 0
-squid_request_duration_seconds_total{interval="4-5"} 0
-squid_request_duration_seconds_total{interval="over5"} 0
+squid_request_duration_seconds_total{interval="0-1"} 2987
+squid_request_duration_seconds_total{interval="1-2"} 234
+squid_request_duration_seconds_total{interval="2-3"} 45
+squid_request_duration_seconds_total{interval="3-4"} 18
+squid_request_duration_seconds_total{interval="4-5"} 8
+squid_request_duration_seconds_total{interval="over5"} 10
 
 # HELP squid_domain_requests_total Total requests per monitored domain
 # TYPE squid_domain_requests_total counter
