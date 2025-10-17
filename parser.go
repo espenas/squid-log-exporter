@@ -79,36 +79,36 @@ func extractHostPort(requestURL string) string {
 
 // trackDomainRequest tracks statistics for a monitored domain
 func (mc *MetricsCollector) trackDomainRequest(hostPort string, duration float64, httpCode string) {
-	labels, exists := mc.monitoredHosts[hostPort]
-	if !exists {
-		return
-	}
+    labels, exists := mc.monitoredHosts[hostPort]
+    if !exists {
+        return
+    }
 
-	stats, statsExists := mc.domainStats[hostPort]
-	if !statsExists {
-		stats = &DomainStats{
-			minDuration: duration,
-			maxDuration: duration,
-			labels:      labels,
-			httpCodes:   make(map[string]int64),
-		}
-		mc.domainStats[hostPort] = stats
-	}
+    stats, statsExists := mc.domainStats[hostPort]
+    if !statsExists {
+        stats = &DomainStats{
+            minDuration: duration,
+            maxDuration: duration,
+            labels:      labels,
+            httpCodes:   make(map[string]int64),
+        }
+        mc.domainStats[hostPort] = stats
+    }
 
-	stats.count++
-	stats.totalDuration += duration
+    stats.count++
+    stats.totalDuration += duration
 
-	if duration > stats.maxDuration {
-		stats.maxDuration = duration
-	}
-	if duration < stats.minDuration {
-		stats.minDuration = duration
-	}
+    if duration > stats.maxDuration {
+        stats.maxDuration = duration
+    }
+    if duration < stats.minDuration {
+        stats.minDuration = duration
+    }
 
-	// Track HTTP status code
-	if httpCode != "" {
-		stats.httpCodes[httpCode]++
-	}
+    // Track HTTP status code
+    if httpCode != "" {
+        stats.httpCodes[httpCode]++
+    }
 }
 
 func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64) (map[string]int, map[string]int, int, map[string]map[string]int, error) {
@@ -166,111 +166,106 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
     totalDuration := 0.0
     totalConnectionsWithDuration := 0
 
-    for scanner.Scan() {
-        line := scanner.Text()
-        bytesRead += int64(len(line)) + 1 // +1 for newline
+for scanner.Scan() {
+    line := scanner.Text()
+    bytesRead += int64(len(line)) + 1 // +1 for newline
 
-        fields := strings.Fields(line)
-        if len(fields) >= 4 {
-            totalConnections++
+    fields := strings.Fields(line)
+    if len(fields) >= 4 {
+        totalConnections++
 
-            // Extract cache status first
-            statusField := fields[3]
-            parts := strings.Split(statusField, "/")
+        // Extract cache status first
+        statusField := fields[3]
+        parts := strings.Split(statusField, "/")
 
-            if len(parts) > 0 {
-                matches := cacheRegex.FindStringSubmatch(parts[0])
-                if len(matches) > 1 {
-                    cacheStatus := matches[1]
-                    cacheCounts[cacheStatus]++
+        // VIKTIG: Ekstraher HTTP code HER, ikke senere
+        var httpCode string
+        if len(parts) > 1 {
+            httpCode = parts[1]
+        }
 
-                    // Track new status
-                    if !mc.knownStatus[cacheStatus] {
-                        mc.knownStatus[cacheStatus] = true
-                        if err := mc.saveKnownStatus(); err != nil {
-                            mc.logError(fmt.Errorf("failed to save new cache status: %v", err))
-                        }
-                    }
-                }
-            }
+        if len(parts) > 0 {
+            matches := cacheRegex.FindStringSubmatch(parts[0])
+            if len(matches) > 1 {
+                cacheStatus := matches[1]
+                cacheCounts[cacheStatus]++
 
-            // Parse duration for all connections (including TCP_TUNNEL)
-            var duration float64
-            if len(fields) >= 2 {
-                if durationMs, err := strconv.ParseFloat(fields[1], 64); err == nil {
-                    duration = durationMs
-                    durationSeconds := durationMs / 1000.0
-
-                    // Track domain statistics (includes TCP_TUNNEL)
-                    if len(fields) >= 7 {
-                        requestURL := fields[6]
-                        hostPort := extractHostPort(requestURL)
-
-                        // Extract HTTP code
-                        var httpCode string
-                        if len(parts) > 1 {
-                            httpCode = parts[1]
-                        }
-
-                        if hostPort != "" {
-                            mc.trackDomainRequest(hostPort, durationSeconds, httpCode)
-                        }
-                    }
-
-                    // Process duration buckets for ALL connections
-                    totalDuration += duration
-                    totalConnectionsWithDuration++
-
-                    // Duration in milliseconds
-                    switch {
-                    case duration <= 200:
-                        durationCounts["ms"]["0-200"]++
-                    case duration <= 400:
-                        durationCounts["ms"]["200-400"]++
-                    case duration <= 600:
-                        durationCounts["ms"]["400-600"]++
-                    case duration <= 800:
-                        durationCounts["ms"]["600-800"]++
-                    case duration <= 1000:
-                        durationCounts["ms"]["800-1000"]++
-                    default:
-                        durationCounts["ms"]["over1000"]++
-                    }
-
-                    // Duration in seconds
-                    durationSec := duration / 1000.0
-                    switch {
-                    case durationSec <= 1.0:
-                        durationCounts["s"]["0-1"]++
-                    case durationSec <= 2.0:
-                        durationCounts["s"]["1-2"]++
-                    case durationSec <= 3.0:
-                        durationCounts["s"]["2-3"]++
-                    case durationSec <= 4.0:
-                        durationCounts["s"]["3-4"]++
-                    case durationSec <= 5.0:
-                        durationCounts["s"]["4-5"]++
-                    default:
-                        durationCounts["s"]["over5"]++
-                    }
-                }
-            }
-
-            // Process HTTP status codes
-            if len(parts) > 1 {
-                httpCode := parts[1]
-                if matched, _ := regexp.MatchString(`^\d{3}$`, httpCode); matched {
-                    codeCounts[httpCode]++
-                    if !mc.knownCodes[httpCode] {
-                        mc.knownCodes[httpCode] = true
-                        if err := mc.saveKnownCodes(); err != nil {
-                            mc.logError(fmt.Errorf("failed to save new HTTP code: %v", err))
-                        }
+                // Track new status
+                if !mc.knownStatus[cacheStatus] {
+                    mc.knownStatus[cacheStatus] = true
+                    if err := mc.saveKnownStatus(); err != nil {
+                        mc.logError(fmt.Errorf("failed to save new cache status: %v", err))
                     }
                 }
             }
         }
+
+        // Parse duration for all connections (including TCP_TUNNEL)
+        var duration float64
+        if len(fields) >= 2 {
+            if durationMs, err := strconv.ParseFloat(fields[1], 64); err == nil {
+                duration = durationMs
+                durationSeconds := durationMs / 1000.0
+
+                // Track domain statistics (includes TCP_TUNNEL)
+                if len(fields) >= 7 {
+                    requestURL := fields[6]
+                    hostPort := extractHostPort(requestURL)
+
+                    // Bruk httpCode som vi ekstraherte tidligere
+                    if hostPort != "" {
+                        mc.trackDomainRequest(hostPort, durationSeconds, httpCode)
+                    }
+                }
+
+                // Process duration buckets for ALL connections
+                totalDuration += duration
+                totalConnectionsWithDuration++
+
+                // Duration in milliseconds
+                switch {
+                case duration <= 200:
+                    durationCounts["ms"]["0-200"]++
+                case duration <= 400:
+                    durationCounts["ms"]["200-400"]++
+                case duration <= 600:
+                    durationCounts["ms"]["400-600"]++
+                case duration <= 800:
+                    durationCounts["ms"]["600-800"]++
+                case duration <= 1000:
+                    durationCounts["ms"]["800-1000"]++
+                default:
+                    durationCounts["ms"]["over1000"]++
+                }
+
+                // Duration in seconds
+                durationSec := duration / 1000.0
+                switch {
+                case durationSec <= 1.0:
+                    durationCounts["s"]["0-1"]++
+                case durationSec <= 2.0:
+                    durationCounts["s"]["1-2"]++
+                case durationSec <= 3.0:
+                    durationCounts["s"]["2-3"]++
+                case durationSec <= 4.0:
+                    durationCounts["s"]["3-4"]++
+                case durationSec <= 5.0:
+                    durationCounts["s"]["4-5"]++
+                default:
+                    durationCounts["s"]["over5"]++
+                }
+            }
+        }
+
+        // Process HTTP status codes for GLOBAL metrics
+        if httpCode != "" {
+            if matched, _ := regexp.MatchString(`^\d{3}$`, httpCode); matched {
+                codeCounts[httpCode]++
+            }
+        }
     }
+}
+
 
     if err := scanner.Err(); err != nil {
         return nil, nil, 0, nil, fmt.Errorf("error scanning file: %v", err)
@@ -297,12 +292,14 @@ func (mc *MetricsCollector) parseNewEntries(lastPosition int64, lastInode uint64
 
         // Log domain statistics
         if len(mc.domainStats) > 0 {
-            mc.logger.Printf("Domain statistics:")
-            for hostPort, stats := range mc.domainStats {
-                avgDuration := stats.totalDuration / float64(stats.count)
-                mc.logger.Printf("  %s: count=%d, avg=%.2fs, min=%.2fs, max=%.2fs",
-                    hostPort, stats.count, avgDuration, stats.minDuration, stats.maxDuration)
+            totalDomains := len(mc.domainStats)
+            var totalConnections int64
+
+            for _, stats := range mc.domainStats {
+                totalConnections += stats.count
             }
+
+            mc.logger.Printf("Processed %d domains and %d connections.", totalDomains, totalConnections)
         }
     }
 

@@ -39,7 +39,6 @@ func loadConfig() (*Config, error) {
         RetryAttempts:        3,
         RetryDelay:           "1s",
         LogFilePath:          "/var/lib/squid_exporter/squid_metrics.log",
-        KnownCodesFilePath:   "/var/lib/squid_exporter/known_http_codes.txt",
         KnownStatusFilePath:  "/var/lib/squid_exporter/known_status.txt",
         MonitoredDomainsPath: "",
     }
@@ -49,7 +48,7 @@ func loadConfig() (*Config, error) {
 
     // If version flag is set, print version and exit
     if flags.Version {
-        fmt.Println("Squid Log Exporter v1.1.0")
+        fmt.Println("Squid Log Exporter v1.2.0")
         os.Exit(0)
     }
 
@@ -158,9 +157,6 @@ func validateConfig(config *Config) error {
     if config.LogFilePath == "" {
         return fmt.Errorf("log file path is required")
     }
-    if config.KnownCodesFilePath == "" {
-        return fmt.Errorf("known codes file path is required")
-    }
     if config.KnownStatusFilePath == "" {
         config.KnownStatusFilePath = "/var/lib/squid_exporter/known_status.txt"
     }
@@ -175,38 +171,38 @@ func validateConfig(config *Config) error {
 
 // loadMonitoredDomains loads the list of domains to monitor
 func (mc *MetricsCollector) loadMonitoredDomains() error {
-	if mc.config.MonitoredDomainsPath == "" {
-		return nil // No domains to monitor
-	}
+    if mc.config.MonitoredDomainsPath == "" {
+        return nil
+    }
 
-	data, err := os.ReadFile(mc.config.MonitoredDomainsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read monitored domains file: %v", err)
-	}
+    data, err := os.ReadFile(mc.config.MonitoredDomainsPath)
+    if err != nil {
+        if os.IsNotExist(err) {
+            return nil
+        }
+        return fmt.Errorf("failed to read monitored domains file: %v", err)
+    }
 
-	var domainConfig DomainConfig
-	if err := yaml.Unmarshal(data, &domainConfig); err != nil {
-		return fmt.Errorf("failed to parse monitored domains file: %v", err)
-	}
+    var domainConfig DomainConfig
+    if err := yaml.Unmarshal(data, &domainConfig); err != nil {
+        return fmt.Errorf("failed to parse monitored domains file: %v", err)
+    }
 
-	mc.monitoredHosts = make(map[string]map[string]string)
-	for _, target := range domainConfig.MonitoredTargets {
-		mc.monitoredHosts[target.Host] = target.Labels
-	}
+    mc.monitoredHosts = make(map[string]map[string]string)
+    for _, target := range domainConfig.MonitoredTargets {
+        mc.monitoredHosts[target.Host] = target.Labels
+    }
 
-	if mc.logger != nil {
-		mc.logger.Printf("Loaded %d monitored targets", len(mc.monitoredHosts))
-		for host, labels := range mc.monitoredHosts {
-			if len(labels) > 0 {
-				mc.logger.Printf("  - %s with labels: %v", host, labels)
-			} else {
-				mc.logger.Printf("  - %s (no labels)", host)
-			}
-		}
-	}
+    if mc.logger != nil {
+        mc.logger.Printf("Loaded %d monitored targets", len(mc.monitoredHosts))
+        for host, labels := range mc.monitoredHosts {
+            if len(labels) > 0 {
+                mc.logger.Printf("  - %s with labels: %v", host, labels)
+            } else {
+                mc.logger.Printf("  - %s (no labels)", host)
+            }
+        }
+    }
 
-	return nil
+    return nil
 }

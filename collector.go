@@ -56,17 +56,12 @@ func NewMetricsCollector(config Config) (*MetricsCollector, error) {
         config:      config,
         logger:      logger,
         retryDelay:  retryDelay,
-        knownCodes:  make(map[string]bool),
         knownStatus: make(map[string]bool),
-        codesFile:   config.KnownCodesFilePath,
         statusFile:  config.KnownStatusFilePath,
         domainStats: make(map[string]*DomainStats),
     }
 
-    // Load known codes and status
-    if err := mc.loadKnownCodes(); err != nil {
-        return nil, fmt.Errorf("failed to load known codes: %v", err)
-    }
+    // Load known status
     if err := mc.loadKnownStatus(); err != nil {
         return nil, fmt.Errorf("failed to load known status: %v", err)
     }
@@ -121,74 +116,6 @@ func (mc *MetricsCollector) writeLastPosition(position int64, inode uint64) erro
     if _, err := fmt.Fprintf(file, "%d %d", position, inode); err != nil {
         return fmt.Errorf("failed to write position: %v", err)
     }
-    return nil
-}
-
-func (mc *MetricsCollector) loadKnownCodes() error {
-    mc.mutex.Lock()
-    defer mc.mutex.Unlock()
-
-    // If file doesn't exist, that's ok - we'll create it when needed
-    data, err := os.ReadFile(mc.codesFile)
-    if err != nil {
-        if os.IsNotExist(err) {
-            return nil
-        }
-        return fmt.Errorf("failed to read known codes file: %v", err)
-    }
-
-    // Parse codes from file
-    for _, code := range strings.Split(string(data), "\n") {
-        code = strings.TrimSpace(code)
-        if code != "" {
-            mc.knownCodes[code] = true
-        }
-    }
-
-    return nil
-}
-
-func (mc *MetricsCollector) saveKnownCodes() error {
-    mc.mutex.Lock()
-    defer mc.mutex.Unlock()
-
-    // Create directory if it doesn't exist
-    if err := os.MkdirAll(filepath.Dir(mc.codesFile), 0755); err != nil {
-        return fmt.Errorf("failed to create directory: %v", err)
-    }
-
-    // Collect and sort codes for consistent file content
-    var codes []string
-    for code := range mc.knownCodes {
-        codes = append(codes, code)
-    }
-    sort.Strings(codes)
-
-    // Write to temporary file first
-    tmpfile, err := os.CreateTemp(filepath.Dir(mc.codesFile), "known_codes.*")
-    if err != nil {
-        return fmt.Errorf("failed to create temp file: %v", err)
-    }
-    tmpName := tmpfile.Name()
-    defer os.Remove(tmpName)
-
-    // Write codes to file
-    for _, code := range codes {
-        if _, err := fmt.Fprintln(tmpfile, code); err != nil {
-            tmpfile.Close()
-            return fmt.Errorf("failed to write code: %v", err)
-        }
-    }
-
-    if err := tmpfile.Close(); err != nil {
-        return fmt.Errorf("failed to close temp file: %v", err)
-    }
-
-    // Atomic rename
-    if err := os.Rename(tmpName, mc.codesFile); err != nil {
-        return fmt.Errorf("failed to save known codes: %v", err)
-    }
-
     return nil
 }
 

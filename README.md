@@ -5,7 +5,7 @@ A lightweight and efficient metrics exporter for Squid proxy access logs. This t
 ## Features
 
 - Parses Squid access logs and generates Prometheus-compatible metrics
-- Tracks HTTP response codes and their categories (2xx, 3xx, 4xx, 5xx). HTTP response codes are stored in a file to be able to count 0 instances.
+- Tracks HTTP response codes and their categories (2xx, 3xx, 4xx, 5xx)
 - Monitors cache status (TCP_HIT, TCP_MISS, TCP_DENIED, TCP_TUNNEL). Cache statuses are stored in a file to be able to count 0 instances.
 - Measures request durations in both milliseconds and seconds for all connection types
 - **Domain-specific monitoring** - Track requests, average/min/max duration for specific domains
@@ -33,7 +33,8 @@ The exporter generates the following metrics:
 - `squid_domain_avg_duration_seconds{host,port,...}`: Average connection duration per domain
 - `squid_domain_max_duration_seconds{host,port,...}`: Longest connection duration per domain
 - `squid_domain_min_duration_seconds{host,port,...}`: Shortest connection duration per domain
-- `squid_domain_http_responses_total{host,port,code,category,...}`: HTTP response codes per monitored domain
+- `squid_domain_http_responses_by_category_total{host,port,category,...}`: HTTP responses per domain by category (always includes 0 values for all categories)
+- `squid_domain_http_responses_total{host,port,code,category,...}`: HTTP responses per domain by specific code (only actual codes seen)
 
 **Note:** All duration metrics include TCP_TUNNEL connections, as these represent the majority of modern HTTPS traffic (HTTPS). Domain metrics automatically include any custom labels you define.
 
@@ -70,7 +71,6 @@ Example `config.json`:
   "retry_attempts": 3,
   "retry_delay": "1s",
   "log_file_path": "/var/lib/squid_exporter/squid_metrics.log",
-  "known_codes_file_path": "/var/lib/squid_exporter/known_http_codes.txt",
   "known_status_file_path": "/var/lib/squid_exporter/known_status.txt",
   "monitored_domains_path": "/etc/squid_exporter/domains.yaml"
 }
@@ -238,6 +238,15 @@ squid_domain_max_duration_seconds{host="example.com",port="443",environment="pro
 # TYPE squid_domain_min_duration_seconds gauge
 squid_domain_min_duration_seconds{host="example.com",port="443",environment="production",orgid="org123"} 0.089123
 
+# HELP squid_domain_http_responses_by_category_total HTTP response codes per monitored domain by category
+# TYPE squid_domain_http_responses_by_category_total counter
+squid_domain_http_responses_by_category_total{host="example.com",port="443",category="0xx",environment="production",orgid="org123"} 0
+squid_domain_http_responses_by_category_total{host="example.com",port="443",category="1xx",environment="production",orgid="org123"} 0
+squid_domain_http_responses_by_category_total{host="example.com",port="443",category="2xx",environment="production",orgid="org123"} 1450
+squid_domain_http_responses_by_category_total{host="example.com",port="443",category="3xx",environment="production",orgid="org123"} 0
+squid_domain_http_responses_by_category_total{host="example.com",port="443",category="4xx",environment="production",orgid="org123"} 23
+squid_domain_http_responses_by_category_total{host="example.com",port="443",category="5xx",environment="production",orgid="org123"} 5
+
 # HELP squid_domain_http_responses_total HTTP response codes per monitored domain
 # TYPE squid_domain_http_responses_total counter
 squid_domain_http_responses_total{host="example.com",port="443",category="2xx",code="200",environment="production",orgid="org123"} 1450
@@ -250,10 +259,18 @@ squid_domain_http_responses_total{host="api.example.com",port="443",category="4x
 # TYPE squid_http_responses_total counter
 squid_http_responses_total{code="000",category="0xx"} 0
 squid_http_responses_total{code="200",category="2xx"} 3289
+squid_http_responses_total{code="201",category="2xx"} 0
+squid_http_responses_total{code="204",category="2xx"} 0
+squid_http_responses_total{code="301",category="3xx"} 0
+squid_http_responses_total{code="302",category="3xx"} 0
+squid_http_responses_total{code="304",category="3xx"} 0
+squid_http_responses_total{code="400",category="4xx"} 0
 squid_http_responses_total{code="403",category="4xx"} 4
 squid_http_responses_total{code="404",category="4xx"} 9
-squid_http_responses_total{code="422",category="4xx"} 0
+squid_http_responses_total{code="500",category="5xx"} 0
+squid_http_responses_total{code="502",category="5xx"} 0
 squid_http_responses_total{code="503",category="5xx"} 0
+squid_http_responses_total{code="504",category="5xx"} 0
 
 # HELP squid_http_responses_by_category_total Total number of HTTP responses by status code category
 # TYPE squid_http_responses_by_category_total counter
