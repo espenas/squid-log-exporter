@@ -7,4 +7,3 @@ log_format:
 monitored_domains:
   - host: "example.com"
     port: "443"
-    squid_group: "production"

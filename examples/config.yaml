@@ -13,7 +13,6 @@ monitored_domains:
   # Production API
   - host: "api.example.com"
     port: "443"
-    squid_group: "production"
     labels:
       team: "backend"
       service: "api"
@@ -24,7 +23,6 @@ monitored_domains:
   # Production Web
   - host: "www.example.com"
     port: "443"
-    squid_group: "production"
     labels:
       team: "frontend"
       service: "web"
@@ -35,7 +33,6 @@ monitored_domains:
   # CDN
   - host: "cdn.example.com"
     port: "443"
-    squid_group: "production"
     labels:
       team: "platform"
       service: "cdn"
@@ -45,7 +42,6 @@ monitored_domains:
   # Staging API
   - host: "api-staging.example.com"
     port: "443"
-    squid_group: "staging"
     labels:
       team: "backend"
       service: "api"
@@ -55,7 +51,6 @@ monitored_domains:
   # Internal services
   - host: "internal.example.com"
     port: "443"
-    squid_group: "internal"
     labels:
       team: "platform"
       service: "internal"
@@ -66,18 +61,15 @@ monitored_domains:
 domain_patterns:
   # All production subdomains
   - pattern: "*.prod.example.com"
-    squid_group: "production"
     labels:
       environment: "prod"
   
   # All staging subdomains
   - pattern: "*.staging.example.com"
-    squid_group: "staging"
     labels:
       environment: "staging"
   
   # All internal services
   - pattern: "*.internal.example.com"
-    squid_group: "internal"
     labels:
       network: "internal"
