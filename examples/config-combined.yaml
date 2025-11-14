@@ -1,0 +1,10 @@
+global:
+  track_all_domains: true
+
+log_format:
+  type: "squid_combined"  # Preset with referer and user_agent
+
+monitored_domains:
+  - host: "example.com"
+    port: "443"
+    squid_group: "production"

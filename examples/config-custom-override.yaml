@@ -1,0 +1,12 @@
+global:
+  track_all_domains: true
+
+log_format:
+  type: "squid_native"
+  # Override only duration unit (the rest from preset)
+  duration_unit: "s"  # If Squid is using seconds instead of milliseconds
+
+monitored_domains:
+  - host: "example.com"
+    port: "443"
+    squid_group: "production"

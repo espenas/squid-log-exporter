@@ -1,0 +1,28 @@
+global:
+  track_all_domains: true
+  max_domains: 10000
+
+global:
+  track_all_domains: true
+
+log_format:
+  type: "custom"
+  fields:
+    timestamp: 0       # 2025-10-29T12:21:11.832
+    duration: 1        # 91
+    client_ip: 2       # 123.10.142.141
+    result_code: 3     # TCP_TUNNEL/200
+    bytes: 4           # 1279
+    method: 5          # CONNECT
+    url: 6             # foo.example.com:443
+    hierarchy: 7       # HIER_DIRECT/14.126.114.143
+    content_type: 8    # -
+    user_agent: 9      # "Java/1.8.0_462"
+    referer: 10        # "-"
+  timestamp_format: "2006-01-02T15:04:05.000"
+  duration_unit: "ms"
+
+monitored_domains:
+  - host: "foo.example.com"
+    port: "443"
+    squid_group: "production"
