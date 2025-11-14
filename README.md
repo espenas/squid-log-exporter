@@ -4,7 +4,7 @@ Prometheus exporter for Squid access logs with support for domain-level metrics,
 
 ## Features
 
-- ✅ **Counter & Gauge metrics** - Proper rate/increase calculations
+- ✅ **Counter metrics** - Proper monotonically increasing counters for rate/increase calculations
 - ✅ **Position tracking** - Incremental log parsing (no re-parsing on restart)
 - ✅ **Log rotation support** - Automatic detection via inode tracking
 - ✅ **Configurable log formats** - Supports standard Squid and custom formats
@@ -13,6 +13,7 @@ Prometheus exporter for Squid access logs with support for domain-level metrics,
 - ✅ **Pattern matching** - Bulk configuration via wildcards
 - ✅ **Performance metrics** - P50/P90/P95/P99 latency, cache hit ratio
 - ✅ **Team/Service labels** - Cost allocation and team dashboards
+- ✅ **"Other" aggregation** - No data loss when max_domains is reached
 
 ## Metrics
 
@@ -20,12 +21,12 @@ Prometheus exporter for Squid access logs with support for domain-level metrics,
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `squid_connections_total` | Gauge | Total connections |
-| `squid_connections_counter_total` | Counter | Total connections (counter) |
-| `squid_http_responses_total` | Gauge | HTTP responses by code |
-| `squid_http_responses_counter_total` | Counter | HTTP responses by code (counter) |
-| `squid_cache_status_total` | Gauge | Cache status distribution |
-| `squid_cache_status_counter_total` | Counter | Cache status distribution (counter) |
+| `squid_connections_total` | Counter | Total number of connections |
+| `squid_request_duration_seconds_total` | Counter | Total request duration by interval |
+| `squid_cache_status_total` | Counter | Requests by cache status (HIT/MISS/etc) |
+| `squid_http_responses_total` | Counter | HTTP responses by status code and category |
+
+**Note:** All global metrics are Counters. Use `rate()` or `increase()` in PromQL queries.
 
 ### All Domains Metrics (Basic)
 
@@ -37,7 +38,7 @@ Basic tracking for all domains (up to `max_domains`). Provides overview without 
 | `squid_all_domains_http_responses_total` | `host`, `port`, `category` | HTTP responses by category (2xx, 4xx, 5xx) |
 | `squid_all_domains_bytes_total` | `host`, `port`, `direction` | Bytes transferred (in/out) |
 
-**Note:** 
+**Note:**
 - When `max_domains` limit is reached, additional domains are aggregated into a special `{host="__other__",port="0"}` metric
 - Use this to monitor if you need to increase `max_domains`
 - Monitored domains are always tracked individually, regardless of `max_domains`
@@ -53,8 +54,8 @@ squid_all_domains_requests_total{host="web.example.com",port="443"} 2000
 squid_all_domains_requests_total{host="__other__",port="0"} 5000
 ```
 
-**Note:** All domains tracking does NOT include:
-- Individual HTTP status codes (only categories)
+**All domains tracking does NOT include:**
+- Individual HTTP status codes (only categories: 2xx, 4xx, 5xx)
 - Latency metrics
 - Custom labels
 
@@ -64,17 +65,17 @@ Use `monitored_domains` for detailed tracking of important domains.
 
 Full tracking with custom labels for your most important domains. Includes detailed HTTP codes and latency percentiles.
 
-| Metric | Labels | Description |
-|--------|--------|-------------|
-| `squid_monitored_domains_requests_total` | `host`, `port`, *custom labels* | Total requests with business context |
-| `squid_monitored_domains_http_responses_total` | `host`, `port`, `code`, `category`, *custom labels* | Detailed HTTP responses with exact codes |
-| `squid_monitored_domains_bytes_total` | `host`, `port`, `direction`, *custom labels* | Bytes transferred (in/out) |
-| `squid_monitored_domains_duration_seconds_avg` | `host`, `port`, *custom labels* | Average latency |
-| `squid_monitored_domains_duration_seconds_p50` | `host`, `port`, *custom labels* | Median latency |
-| `squid_monitored_domains_duration_seconds_p90` | `host`, `port`, *custom labels* | 90th percentile latency |
-| `squid_monitored_domains_duration_seconds_p95` | `host`, `port`, *custom labels* | 95th percentile latency |
-| `squid_monitored_domains_duration_seconds_p99` | `host`, `port`, *custom labels* | 99th percentile latency |
-| `squid_monitored_domains_cache_hit_ratio` | `host`, `port`, *custom labels* | Cache effectiveness (0-1) |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `squid_monitored_domains_requests_total` | Counter | `host`, `port`, *custom labels* | Total requests with business context |
+| `squid_monitored_domains_http_responses_total` | Counter | `host`, `port`, `code`, `category`, *custom labels* | Detailed HTTP responses with exact codes |
+| `squid_monitored_domains_bytes_total` | Counter | `host`, `port`, `direction`, *custom labels* | Bytes transferred (in/out) |
+| `squid_monitored_domains_duration_seconds_avg` | Gauge | `host`, `port`, *custom labels* | Average latency |
+| `squid_monitored_domains_duration_seconds_p50` | Gauge | `host`, `port`, *custom labels* | Median latency |
+| `squid_monitored_domains_duration_seconds_p90` | Gauge | `host`, `port`, *custom labels* | 90th percentile latency |
+| `squid_monitored_domains_duration_seconds_p95` | Gauge | `host`, `port`, *custom labels* | 95th percentile latency |
+| `squid_monitored_domains_duration_seconds_p99` | Gauge | `host`, `port`, *custom labels* | 99th percentile latency |
+| `squid_monitored_domains_cache_hit_ratio` | Gauge | `host`, `port`, *custom labels* | Cache effectiveness (0-1) |
 
 **Custom labels** are defined per domain in your configuration (e.g., `team`, `service`, `environment`, `critical`).
 
@@ -100,6 +101,7 @@ sudo chmod +x /usr/local/bin/squid-log-exporter
 sudo mkdir -p /etc/squid-log-exporter
 sudo mkdir -p /var/lib/squid-log-exporter
 sudo chown squid-exporter:squid-exporter /var/lib/squid-log-exporter
+sudo chmod 755 /var/lib/squid-log-exporter
 
 # Install config
 sudo cp examples/config.yaml /etc/squid-log-exporter/config.yaml
@@ -286,26 +288,24 @@ scrape_configs:
 
 ### Basic Queries (All Domains)
 ```promql
-# Top 10 domains by request rate
-topk(10, rate(squid_all_domains_requests_total[5m]))
-
 # Top 10 domains by request rate (excluding "other")
 topk(10, rate(squid_all_domains_requests_total{host!="__other__"}[5m]))
 
-# Check if max_domains is too low
-squid_all_domains_requests_total{host="__other__"}
-/ 
-sum(squid_all_domains_requests_total) 
-* 100  # Percentage in "other"
+# Check if max_domains is too low (percentage in "other")
+(
+  squid_all_domains_requests_total{host="__other__"}
+  /
+  sum(squid_all_domains_requests_total)
+) * 100
 
 # Total tracked domains
 count(squid_all_domains_requests_total{host!="__other__"})
 
 # Untracked traffic volume
-sum(rate(squid_all_domains_requests_total{host="__other__"}[5m]))
+rate(squid_all_domains_requests_total{host="__other__"}[5m])
 
 # Total bandwidth by domain
-topk(10, 
+topk(10,
   sum by(host) (
     rate(squid_all_domains_bytes_total[1h])
   )
@@ -315,6 +315,9 @@ topk(10,
 sum by(host) (
   rate(squid_all_domains_http_responses_total{category=~"4xx|5xx"}[5m])
 )
+
+# HTTP responses by category (aggregated from detailed metric)
+sum by(category) (rate(squid_http_responses_total[5m]))
 ```
 
 ### Advanced Queries (Monitored Domains)
@@ -325,10 +328,11 @@ sum by(team) (
 )
 
 # Error rate for critical services
-sum(rate(squid_monitored_domains_http_responses_total{critical="true",category=~"4xx|5xx"}[5m]))
-/
-sum(rate(squid_monitored_domains_http_responses_total{critical="true"}[5m]))
-* 100
+(
+  sum(rate(squid_monitored_domains_http_responses_total{critical="true",category=~"4xx|5xx"}[5m]))
+  /
+  sum(rate(squid_monitored_domains_http_responses_total{critical="true"}[5m]))
+) * 100
 
 # P95 latency for production services
 squid_monitored_domains_duration_seconds_p95{environment="prod"}
@@ -367,6 +371,13 @@ squid_monitored_domains_duration_seconds_p95{critical="true"} > 1  # Over 1 seco
 
 # Alert: Low cache hit ratio
 squid_monitored_domains_cache_hit_ratio{critical="true"} < 0.5  # Below 50%
+
+# Alert: Too many untracked domains
+(
+  squid_all_domains_requests_total{host="__other__"}
+  /
+  sum(squid_all_domains_requests_total)
+) > 0.2  # Over 20% of traffic is untracked
 ```
 
 ## Architecture
@@ -406,10 +417,10 @@ Version 2.0 removes old redundant metrics and introduces the all_domains/monitor
 ### Breaking Changes
 
 **Removed metrics:**
-- `squid_domain_requests_total` (gauge) → Use `squid_all_domains_requests_total`
-- `squid_domain_requests_counter_total` → Use `squid_all_domains_requests_total`
-- `squid_domain_http_responses_total` → Use `squid_all_domains_http_responses_total` or `squid_monitored_domains_http_responses_total`
-- `squid_domain_avg_duration_seconds` → Use `squid_monitored_domains_duration_seconds_*`
+- All `*_total` gauge versions (replaced with counter-only metrics)
+- All `*_counter_total` metrics (renamed to `*_total` counters)
+- `squid_http_responses_by_category_total` (aggregate from `squid_http_responses_total` instead)
+- `squid_domain_*` metrics (replaced by `squid_all_domains_*` and `squid_monitored_domains_*`)
 
 **Config changes:**
 - Removed `squid_group` label
@@ -435,17 +446,26 @@ monitored_domains:
 
 2. **Update Grafana queries**:
 ```promql
-# Old
-squid_domain_requests_counter_total{host="api.example.com"}
+# Old (gauge)
+squid_connections_total
 
-# New - if not monitored
-squid_all_domains_requests_total{host="api.example.com"}
+# New (counter - use rate)
+rate(squid_connections_total[5m])
 
-# New - if monitored
-squid_monitored_domains_requests_total{host="api.example.com",service="api"}
+# Old (counter with _counter_ suffix)
+rate(squid_domain_requests_counter_total{host="api.example.com"}[5m])
+
+# New (cleaner counter name)
+rate(squid_all_domains_requests_total{host="api.example.com"}[5m])
+
+# Old (by category metric)
+rate(squid_http_responses_by_category_total{category="2xx"}[5m])
+
+# New (aggregate from detailed metric)
+sum by(category) (rate(squid_http_responses_total[5m]))
 ```
 
-3. **Update alerts** to use new metric names
+3. **Update alerts** to use new metric names and add `rate()` where needed
 
 ## Troubleshooting
 
@@ -494,6 +514,17 @@ echo "YOUR_LOG_LINE_HERE" > test.log
 
 ### Common Issues
 
+**Problem**: `failed to save position: permission denied`
+```bash
+Solution: Ensure position file directory is writable by the exporter user
+
+sudo chown squid-exporter:squid-exporter /var/lib/squid-log-exporter
+sudo chmod 755 /var/lib/squid-log-exporter
+
+# Test permissions
+sudo -u squid-exporter touch /var/lib/squid-log-exporter/test.tmp
+```
+
 **Problem**: Too many time series
 ```
 Solution: Reduce max_domains or limit monitored_domains
@@ -525,13 +556,19 @@ Use this query to see tracked domain count:
 
 **Problem**: Important domain ending up in __other__
 ```
-Solution: Add it to monitored_domains - monitored domains are ALWAYS tracked 
+Solution: Add it to monitored_domains - monitored domains are ALWAYS tracked
 individually regardless of max_domains limit:
   monitored_domains:
     - host: "important.example.com"
       port: "443"
       labels:
         critical: "true"
+```
+
+**Problem**: Metrics show scientific notation like `4.239318e+06`
+```
+This is normal for large numbers. It means 4,239,318 (4.2 million).
+Grafana will display these in human-readable format automatically.
 ```
 
 ## License

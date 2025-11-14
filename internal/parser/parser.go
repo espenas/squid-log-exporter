@@ -385,10 +385,6 @@ func (p *Parser) updateMetrics(stats *Stats) {
 		}
 	}
 
-	for category, count := range stats.HTTPByCategory {
-		p.metrics.SetHTTPResponseByCategory(category, count)
-	}
-
 	// Domain metrics - track "other" for untracked domains
 	var otherRequests float64
 	var otherBytesIn float64

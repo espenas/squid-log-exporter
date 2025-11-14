@@ -69,17 +69,22 @@ func (t *Tracker) Save(filename string, pos int64, inode uint64) error {
 		return fmt.Errorf("failed to marshal position: %w", err)
 	}
 
+	// Ensure target directory exists
 	dir := filepath.Dir(t.positionFile)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create position directory: %w", err)
 	}
 
+	// Write to temp file in same directory as destination (guaranteed atomic rename)
 	tmpFile := t.positionFile + ".tmp"
+
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write temp position file: %w", err)
 	}
 
+	// Atomic rename to final location
 	if err := os.Rename(tmpFile, t.positionFile); err != nil {
+		os.Remove(tmpFile) // Cleanup temp file on failure
 		return fmt.Errorf("failed to rename position file: %w", err)
 	}
 
@@ -90,6 +95,7 @@ func (t *Tracker) Save(filename string, pos int64, inode uint64) error {
 func (t *Tracker) GetPosition() (int64, uint64) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.position.Position, t.position.Inode
 }
 
