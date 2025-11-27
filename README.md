@@ -1,360 +1,583 @@
 # Squid Log Exporter
 
-A lightweight and efficient metrics exporter for Squid proxy access logs. This tool parses Squid access logs and generates Prometheus-compatible metrics, helping you monitor your Squid proxy server's performance and usage patterns.
+Prometheus exporter for Squid access logs with support for domain-level metrics, custom labels, and position tracking.
 
 ## Features
 
-- Parses Squid access logs and generates Prometheus-compatible metrics
-- Tracks HTTP response codes and their categories (2xx, 3xx, 4xx, 5xx)
-- Monitors cache status (TCP_HIT, TCP_MISS, TCP_DENIED, TCP_TUNNEL). Cache statuses are stored in a file to be able to count 0 instances.
-- Measures request durations in both milliseconds and seconds for all connection types
-- **Domain-specific monitoring** - Track requests, average/min/max duration for specific domains
-- **Custom labels** - Add your own labels (orgid, instid, environment, etc.) to domain metrics for flexible grouping and filtering
-- Maintains state across restarts using position tracking
-- Supports file rotation
-- Configurable through both JSON config files and command-line flags
-- Error logging with retry mechanism for metric writes
-- Atomic file operations for reliability
+- ✅ **Counter metrics** - Proper monotonically increasing counters for rate/increase calculations
+- ✅ **Position tracking** - Incremental log parsing (no re-parsing on restart)
+- ✅ **Log rotation support** - Automatic detection via inode tracking
+- ✅ **Configurable log formats** - Supports standard Squid and custom formats
+- ✅ **All domains tracking** - Basic metrics for every domain (requests, bytes, HTTP categories)
+- ✅ **Monitored domains** - Extended metrics with custom labels and latency tracking
+- ✅ **Pattern matching** - Bulk configuration via wildcards
+- ✅ **Performance metrics** - P50/P90/P95/P99 latency, cache hit ratio
+- ✅ **Team/Service labels** - Cost allocation and team dashboards
+- ✅ **"Other" aggregation** - No data loss when max_domains is reached
 
 ## Metrics
 
-The exporter generates the following metrics:
+### Global Metrics
 
-### General Metrics
-- `squid_connections_total`: Total number of connections processed
-- `squid_request_duration_milliseconds_total`: Request counts by duration intervals (ms)
-- `squid_request_duration_seconds_total`: Request counts by duration intervals (s)
-- `squid_http_responses_total`: HTTP response counts by status code and category
-- `squid_http_responses_by_category_total`: HTTP response counts aggregated by category
-- `squid_cache_status_total`: Request counts by cache status
+| Metric | Type | Description |
+|--------|------|-------------|
+| `squid_connections_total` | Counter | Total number of connections |
+| `squid_request_duration_seconds_total` | Counter | Total request duration by interval |
+| `squid_cache_status_total` | Counter | Requests by cache status (HIT/MISS/etc) |
+| `squid_http_responses_total` | Counter | HTTP responses by status code and category |
 
-### Domain-Specific Metrics
-- `squid_domain_requests_total{host,port,...}`: Total requests per monitored domain
-- `squid_domain_avg_duration_seconds{host,port,...}`: Average connection duration per domain
-- `squid_domain_max_duration_seconds{host,port,...}`: Longest connection duration per domain
-- `squid_domain_min_duration_seconds{host,port,...}`: Shortest connection duration per domain
-- `squid_domain_http_responses_by_category_total{host,port,category,...}`: HTTP responses per domain by category (always includes 0 values for all categories)
-- `squid_domain_http_responses_total{host,port,code,category,...}`: HTTP responses per domain by specific code (only actual codes seen)
+**Note:** All global metrics are Counters. Use `rate()` or `increase()` in PromQL queries.
 
-**Note:** All duration metrics include TCP_TUNNEL connections, as these represent the majority of modern HTTPS traffic (HTTPS). Domain metrics automatically include any custom labels you define.
+### All Domains Metrics (Basic)
 
-## Installation
-```bash
-go get github.com/espenas/squid-log-exporter
+Basic tracking for all domains (up to `max_domains`). Provides overview without custom labels.
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `squid_all_domains_requests_total` | `host`, `port` | Total requests |
+| `squid_all_domains_http_responses_total` | `host`, `port`, `category` | HTTP responses by category (2xx, 4xx, 5xx) |
+| `squid_all_domains_bytes_total` | `host`, `port`, `direction` | Bytes transferred (in/out) |
+
+**Note:**
+- When `max_domains` limit is reached, additional domains are aggregated into a special `{host="__other__",port="0"}` metric
+- Use this to monitor if you need to increase `max_domains`
+- Monitored domains are always tracked individually, regardless of `max_domains`
+
+**Example with max_domains reached:**
+```promql
+# Individual domains (up to max_domains)
+squid_all_domains_requests_total{host="api.example.com",port="443"} 1000
+squid_all_domains_requests_total{host="web.example.com",port="443"} 2000
+...
+
+# All remaining domains aggregated
+squid_all_domains_requests_total{host="__other__",port="0"} 5000
 ```
 
-Or clone the repository and build manually:
+**All domains tracking does NOT include:**
+- Individual HTTP status codes (only categories: 2xx, 4xx, 5xx)
+- Latency metrics
+- Custom labels
 
+Use `monitored_domains` for detailed tracking of important domains.
+
+### Monitored Domains Metrics (Extended)
+
+Full tracking with custom labels for your most important domains. Includes detailed HTTP codes and latency percentiles.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `squid_monitored_domains_requests_total` | Counter | `host`, `port`, *custom labels* | Total requests with business context |
+| `squid_monitored_domains_http_responses_total` | Counter | `host`, `port`, `code`, `category`, *custom labels* | Detailed HTTP responses with exact codes |
+| `squid_monitored_domains_bytes_total` | Counter | `host`, `port`, `direction`, *custom labels* | Bytes transferred (in/out) |
+| `squid_monitored_domains_duration_seconds_avg` | Gauge | `host`, `port`, *custom labels* | Average latency |
+| `squid_monitored_domains_duration_seconds_p50` | Gauge | `host`, `port`, *custom labels* | Median latency |
+| `squid_monitored_domains_duration_seconds_p90` | Gauge | `host`, `port`, *custom labels* | 90th percentile latency |
+| `squid_monitored_domains_duration_seconds_p95` | Gauge | `host`, `port`, *custom labels* | 95th percentile latency |
+| `squid_monitored_domains_duration_seconds_p99` | Gauge | `host`, `port`, *custom labels* | 99th percentile latency |
+| `squid_monitored_domains_cache_hit_ratio` | Gauge | `host`, `port`, *custom labels* | Cache effectiveness (0-1) |
+
+**Custom labels** are defined per domain in your configuration (e.g., `team`, `service`, `environment`, `critical`).
+
+## Installation
+
+### Build from source
 ```bash
 git clone https://github.com/espenas/squid-log-exporter.git
 cd squid-log-exporter
-go mod init squid-log-exporter
-go mod tidy
-go build
+go build -o squid-log-exporter ./cmd/squid-log-exporter
+```
+
+### Install
+```bash
+# Create user
+sudo useradd --system --no-create-home --shell /bin/false squid-exporter
+
+# Install binary
+sudo cp squid-log-exporter /usr/local/bin/
+sudo chmod +x /usr/local/bin/squid-log-exporter
+
+# Create directories
+sudo mkdir -p /etc/squid-log-exporter
+sudo mkdir -p /var/lib/squid-log-exporter
+sudo chown squid-exporter:squid-exporter /var/lib/squid-log-exporter
+sudo chmod 755 /var/lib/squid-log-exporter
+
+# Install config
+sudo cp examples/config.yaml /etc/squid-log-exporter/config.yaml
+
+# Install systemd service
+sudo cp deployments/systemd/squid-log-exporter.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable squid-log-exporter
+sudo systemctl start squid-log-exporter
 ```
 
 ## Configuration
 
-The exporter can be configured through both a JSON configuration file and command-line flags. Command-line flags take precedence over configuration file values.
+### Basic Configuration
 
-### Main Configuration File
-
-Example `config.json`:
-
-```json
-{
-  "access_log_path": "/var/log/squid/access.log",
-  "position_file_path": "/var/lib/squid_exporter/position.txt",
-  "output_path": "/var/lib/squid_exporter/metrics.txt",
-  "buffer_size": 65536,
-  "log_errors": true,
-  "retry_attempts": 3,
-  "retry_delay": "1s",
-  "log_file_path": "/var/lib/squid_exporter/squid_metrics.log",
-  "known_status_file_path": "/var/lib/squid_exporter/known_status.txt",
-  "monitored_domains_path": "/etc/squid_exporter/domains.yaml"
-}
-```
-
-### Monitored Domains Configuration
-
-Create a `domains.yaml` file to specify which domains to monitor. You can add custom labels to each domain for flexible grouping and filtering in your monitoring system.
-
-Basic Example:
-
+Create `/etc/squid-log-exporter/config.yaml`:
 ```yaml
-monitored_targets:
-  - host: "example.com:443"
-  - host: "api.example.com:443"
-  - host: "legacy.example.com:80"
+global:
+  track_all_domains: true    # Basic tracking for all domains
+  max_domains: 10000         # Limit to prevent memory issues
+
+# Log format is optional - defaults to squid_native
+# Only specify if you use a custom format
+
+monitored_domains:
+  - host: "api.example.com"
+    port: "443"
+    labels:
+      team: "backend"
+      service: "api"
+      environment: "prod"
+      critical: "true"
+  
+  - host: "web.example.com"
+    port: "443"
+    labels:
+      team: "frontend"
+      service: "web"
+      environment: "prod"
+
+domain_patterns:
+  - pattern: "*.prod.example.com"
+    labels:
+      environment: "prod"
+  
+  - pattern: "*.dev.example.com"
+    labels:
+      environment: "dev"
 ```
 
-Example with Custom Labels:
+### Custom Labels
 
+You can define any custom labels you want. Common examples:
+
+- `team` - Team ownership (backend, frontend, data, etc.)
+- `service` - Service name (api, web, cache, etc.)
+- `environment` - Environment (prod, staging, dev)
+- `critical` - Business criticality (true/false)
+- `cost_center` - For cost allocation
+- `region` - Geographical region
+
+Custom labels appear in all `squid_monitored_domains_*` metrics.
+
+### Log Format Configuration
+
+#### Default (Standard Squid Native Format)
+
+No configuration needed! The exporter uses standard Squid access.log format by default.
+
+**Standard Squid format:**
+```
+1234567890.123 100 127.0.0.1 TCP_MISS/200 1234 GET http://example.com/ - HIER_DIRECT/93.184.216.34 text/html
+```
+
+#### Custom Log Format
+
+If your Squid uses a custom log format, you can configure it:
 ```yaml
-monitored_targets:
-  - host: "example.com:443"
+global:
+  track_all_domains: true
+
+log_format:
+  type: "custom"
+  fields:
+    timestamp: 0       # 2025-10-29T12:21:11.832
+    duration: 1        # 91 (milliseconds)
+    client_ip: 2       # 123.10.142.141
+    result_code: 3     # TCP_TUNNEL/200
+    bytes: 4           # 1279
+    method: 5          # CONNECT
+    url: 6             # foo.example.com:443
+    hierarchy: 7       # HIER_DIRECT/14.126.114.143
+    content_type: 8    # -
+    user_agent: 9      # "Java/1.8.0_462"
+    referer: 10        # "-"
+  timestamp_format: "2006-01-02T15:04:05.000"
+  duration_unit: "ms"
+
+monitored_domains:
+  - host: "foo.example.com"
+    port: "443"
     labels:
-      orgid: "org123"
-      environment: "production"
-  
-  - host: "api.example.com:443"
-    labels:
-      orgid: "org456"
-      environment: "staging"
-      region: "eu-west"
-  
-  - host: "test.example.com:443"
-    labels:
-      instid: "inst789"
-      testid: "test001"
-  
-  - host: "simple.example.com:443"
-    # No labels - completely optional
+      service: "api"
 ```
 
-Custom Labels:
-
-- Labels are completely optional - domains without labels work perfectly fine
-- Use any label names you want (orgid, instid, environment, region, team, etc.)
-- Each domain can have different labels
-- Labels appear as Prometheus labels in the metrics output
-- Great for grouping, filtering, and aggregating metrics in your monitoring dashboards
-
-Important Domain Configuration Notes:
-
-- Use exact domain:port combinations as they appear in Squid logs
-- HTTPS connections typically use port 443
-- HTTP connections typically use port 80
-- No wildcard matching - each domain must be specified exactly
-
-To find your most active domains:
-```bash
-awk '{print $7}' /var/log/squid/access.log | sort | uniq -c | sort -rn | head -20
+**Example custom format log line:**
+```
+2025-10-29T12:21:11.832 91 123.10.142.141 TCP_TUNNEL/200 1279 CONNECT foo.example.com:443 HIER_DIRECT/14.126.114.143 - "Java/1.8.0_462" "-"
 ```
 
+#### Supported Log Format Types
 
-### Command-line Flags
+| Type | Description | Configuration Required |
+|------|-------------|----------------------|
+| `squid_native` | Standard Squid access.log format (default) | ❌ No |
+| `squid_combined` | Squid with referer and user_agent | ❌ No |
+| `custom` | Your custom log format | ✅ Yes - define fields |
 
-```
-  -access-log string
-        Path to Squid access log file
-  -buffer-size int
-        Buffer size for reading log file (in bytes)
-  -config string
-        Path to configuration file (JSON)
-  -domains-config string
-        Path to monitored domains YAML configuration file
-  -log-errors
-        Enable error logging (default true)
-  -output string
-        Path where metrics will be written
-  -position-file string
-        Path to file storing the last read position
-  -retry-attempts int
-        Number of retry attempts for writing metrics
-  -retry-delay string
-        Delay between retry attempts (e.g., '1s', '500ms')
-  -version
-        Print version information
-```
+#### Custom Format Fields
+
+Required fields for custom format:
+- `timestamp` - Log entry timestamp
+- `duration` - Request duration
+- `result_code` - Cache status and HTTP code (e.g., TCP_MISS/200)
+- `bytes` - Bytes transferred
+- `method` - HTTP method (GET, POST, CONNECT, etc.)
+- `url` - Requested URL or host:port
+
+Optional fields:
+- `client_ip` - Client IP address
+- `hierarchy` - Squid hierarchy (HIER_DIRECT, etc.)
+- `content_type` - Content type
+- `user_agent` - User agent string
+- `referer` - HTTP referer
+
+#### Timestamp Formats
+
+Use Go time layout format:
+
+| Example | Format String |
+|---------|---------------|
+| `2025-10-29T12:21:11.832` | `2006-01-02T15:04:05.000` |
+| `2025-10-29 12:21:11` | `2006-01-02 15:04:05` |
+| `29/Oct/2025:12:21:11` | `02/Jan/2006:15:04:05` |
+| Unix timestamp | `unix` |
+
+#### Duration Units
+
+- `ms` - Milliseconds (default for Squid)
+- `s` - Seconds
 
 ## Usage
-
-Basic usage with default configuration:
-
 ```bash
-./squid-log-exporter
+squid-log-exporter \
+  --listen-address=:9448 \
+  --log-file=/var/log/squid/access.log \
+  --config=/etc/squid-log-exporter/config.yaml \
+  --position-file=/var/lib/squid-log-exporter/position.json \
+  --interval=60s
 ```
 
-Using a configuration file:
+### Command-line Options
 
-```bash
-./squid-log-exporter -config /path/to/config.json
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen-address` | `:9448` | HTTP server listen address |
+| `--metrics-path` | `/metrics` | Path to expose metrics |
+| `--log-file` | `/var/log/squid/access.log` | Squid access log file path |
+| `--config` | `/etc/squid-log-exporter/config.yaml` | Configuration file path |
+| `--position-file` | `/var/lib/squid-log-exporter/position.json` | Position tracking file |
+| `--interval` | `60s` | Log parsing interval |
+| `--version` | - | Show version information |
+
+## Prometheus Configuration
+```yaml
+scrape_configs:
+  - job_name: 'squid-log-exporter'
+    static_configs:
+      - targets: ['localhost:9448']
+    scrape_interval: 60s  # Match your --interval setting
 ```
 
-With domain monitoring:
+## Example Queries
 
-```bash
-./squid-log-exporter -config /path/to/config.json -domains-config /path/to/domains.yaml
-```
-
-Override specific settings:
-
-```bash
-./squid-log-exporter -access-log /custom/path/access.log -buffer-size 131072
-```
-
-Run on a schedule (e.g., every 5 minutes with cron):
-
-```bash
-*/5 * * * * /usr/local/bin/squid-log-exporter -config /etc/squid_exporter/config.json
-```
-
-## Output Format
-
-The exporter generates Prometheus-compatible metrics in a text file. Example output:
-
-```
-# HELP squid_connections_total Total number of connections
-# TYPE squid_connections_total counter
-squid_connections_total 3302
-
-# HELP squid_request_duration_milliseconds_total Number of requests by duration interval in milliseconds
-# TYPE squid_request_duration_milliseconds_total counter
-squid_request_duration_milliseconds_total{interval="0-200"} 2450
-squid_request_duration_milliseconds_total{interval="200-400"} 623
-squid_request_duration_milliseconds_total{interval="400-600"} 156
-squid_request_duration_milliseconds_total{interval="600-800"} 48
-squid_request_duration_milliseconds_total{interval="800-1000"} 18
-squid_request_duration_milliseconds_total{interval="over1000"} 7
-
-# HELP squid_request_duration_seconds_total Number of requests by duration interval in seconds
-# TYPE squid_request_duration_seconds_total counter
-squid_request_duration_seconds_total{interval="0-1"} 2987
-squid_request_duration_seconds_total{interval="1-2"} 234
-squid_request_duration_seconds_total{interval="2-3"} 45
-squid_request_duration_seconds_total{interval="3-4"} 18
-squid_request_duration_seconds_total{interval="4-5"} 8
-squid_request_duration_seconds_total{interval="over5"} 10
-
-# HELP squid_domain_requests_total Total requests per monitored domain
-# TYPE squid_domain_requests_total counter
-squid_domain_requests_total{host="example.com",port="443",environment="production",orgid="org123"} 1523
-squid_domain_requests_total{host="api.example.com",port="443",environment="staging",orgid="org456",region="eu-west"} 456
-squid_domain_requests_total{host="test.example.com",port="443",instid="inst789",testid="test001"} 234
-squid_domain_requests_total{host="simple.example.com",port="443"} 100
-
-# HELP squid_domain_avg_duration_seconds Average connection duration per domain
-# TYPE squid_domain_avg_duration_seconds gauge
-squid_domain_avg_duration_seconds{host="example.com",port="443",environment="production",orgid="org123"} 2.456789
-squid_domain_avg_duration_seconds{host="api.example.com",port="443",environment="staging",orgid="org456",region="eu-west"} 1.234567
-
-# HELP squid_domain_max_duration_seconds Longest connection duration per domain
-# TYPE squid_domain_max_duration_seconds gauge
-squid_domain_max_duration_seconds{host="example.com",port="443",environment="production",orgid="org123"} 45.123456
-
-# HELP squid_domain_min_duration_seconds Shortest connection duration per domain
-# TYPE squid_domain_min_duration_seconds gauge
-squid_domain_min_duration_seconds{host="example.com",port="443",environment="production",orgid="org123"} 0.089123
-
-# HELP squid_domain_http_responses_by_category_total HTTP response codes per monitored domain by category
-# TYPE squid_domain_http_responses_by_category_total counter
-squid_domain_http_responses_by_category_total{host="example.com",port="443",category="0xx",environment="production",orgid="org123"} 0
-squid_domain_http_responses_by_category_total{host="example.com",port="443",category="1xx",environment="production",orgid="org123"} 0
-squid_domain_http_responses_by_category_total{host="example.com",port="443",category="2xx",environment="production",orgid="org123"} 1450
-squid_domain_http_responses_by_category_total{host="example.com",port="443",category="3xx",environment="production",orgid="org123"} 0
-squid_domain_http_responses_by_category_total{host="example.com",port="443",category="4xx",environment="production",orgid="org123"} 23
-squid_domain_http_responses_by_category_total{host="example.com",port="443",category="5xx",environment="production",orgid="org123"} 5
-
-# HELP squid_domain_http_responses_total HTTP response codes per monitored domain
-# TYPE squid_domain_http_responses_total counter
-squid_domain_http_responses_total{host="example.com",port="443",category="2xx",code="200",environment="production",orgid="org123"} 1450
-squid_domain_http_responses_total{host="example.com",port="443",category="4xx",code="404",environment="production",orgid="org123"} 23
-squid_domain_http_responses_total{host="example.com",port="443",category="5xx",code="503",environment="production",orgid="org123"} 5
-squid_domain_http_responses_total{host="api.example.com",port="443",category="2xx",code="200",environment="staging",orgid="org456",region="eu-west"} 890
-squid_domain_http_responses_total{host="api.example.com",port="443",category="4xx",code="401",environment="staging",orgid="org456",region="eu-west"} 12
-
-# HELP squid_http_responses_total Total number of HTTP responses by status code and category
-# TYPE squid_http_responses_total counter
-squid_http_responses_total{code="000",category="0xx"} 0
-squid_http_responses_total{code="200",category="2xx"} 3289
-squid_http_responses_total{code="201",category="2xx"} 0
-squid_http_responses_total{code="204",category="2xx"} 0
-squid_http_responses_total{code="301",category="3xx"} 0
-squid_http_responses_total{code="302",category="3xx"} 0
-squid_http_responses_total{code="304",category="3xx"} 0
-squid_http_responses_total{code="400",category="4xx"} 0
-squid_http_responses_total{code="403",category="4xx"} 4
-squid_http_responses_total{code="404",category="4xx"} 9
-squid_http_responses_total{code="500",category="5xx"} 0
-squid_http_responses_total{code="502",category="5xx"} 0
-squid_http_responses_total{code="503",category="5xx"} 0
-squid_http_responses_total{code="504",category="5xx"} 0
-
-# HELP squid_http_responses_by_category_total Total number of HTTP responses by status code category
-# TYPE squid_http_responses_by_category_total counter
-squid_http_responses_by_category_total{category="0xx"} 0
-squid_http_responses_by_category_total{category="2xx"} 3289
-squid_http_responses_by_category_total{category="4xx"} 13
-squid_http_responses_by_category_total{category="5xx"} 0
-
-# HELP squid_cache_status_total Total number of requests by cache status
-# TYPE squid_cache_status_total counter
-squid_cache_status_total{status="TCP_DENIED"} 4
-squid_cache_status_total{status="TCP_MISS"} 132
-squid_cache_status_total{status="TCP_TUNNEL"} 3166
-```
-
-## Use Cases for Custom Labels
-
-Custom labels enable powerful filtering and aggregation in Prometheus queries:
+### Basic Queries (All Domains)
 ```promql
-# Total requests per organization
-sum by (orgid) (squid_domain_requests_total)
+# Top 10 domains by request rate (excluding "other")
+topk(10, rate(squid_all_domains_requests_total{host!="__other__"}[5m]))
 
-# Average duration for production environments
-avg(squid_domain_avg_duration_seconds{environment="production"})
+# Check if max_domains is too low (percentage in "other")
+(
+  squid_all_domains_requests_total{host="__other__"}
+  /
+  sum(squid_all_domains_requests_total)
+) * 100
 
-# Requests per region
-sum by (region) (squid_domain_requests_total)
+# Total tracked domains
+count(squid_all_domains_requests_total{host!="__other__"})
 
-# Compare test instances
-squid_domain_requests_total{testid=~"test.*"}
+# Untracked traffic volume
+rate(squid_all_domains_requests_total{host="__other__"}[5m])
 
-# Error rate per domain (4xx + 5xx)
-sum by (host) (squid_domain_http_responses_total{category=~"4xx|5xx"})
+# Total bandwidth by domain
+topk(10,
+  sum by(host) (
+    rate(squid_all_domains_bytes_total[1h])
+  )
+)
 
-# Success rate per domain
-sum by (host) (squid_domain_http_responses_total{category="2xx"}) 
-  / sum by (host) (squid_domain_http_responses_total)
+# Error rate per domain
+sum by(host) (
+  rate(squid_all_domains_http_responses_total{category=~"4xx|5xx"}[5m])
+)
 
-# All 5xx errors per organization
-sum by (orgid) (squid_domain_http_responses_total{category="5xx"})
-
-# Domains with most 404 errors
-topk(5, squid_domain_http_responses_total{code="404"})
-
-# Error percentage per environment
-sum by (environment) (squid_domain_http_responses_total{category=~"4xx|5xx"})
-  / sum by (environment) (squid_domain_http_responses_total) * 100
+# HTTP responses by category (aggregated from detailed metric)
+sum by(category) (rate(squid_http_responses_total[5m]))
 ```
 
-### Project Structure
+### Advanced Queries (Monitored Domains)
+```promql
+# Request rate per team
+sum by(team) (
+  rate(squid_monitored_domains_requests_total[5m])
+)
+
+# Error rate for critical services
+(
+  sum(rate(squid_monitored_domains_http_responses_total{critical="true",category=~"4xx|5xx"}[5m]))
+  /
+  sum(rate(squid_monitored_domains_http_responses_total{critical="true"}[5m]))
+) * 100
+
+# P95 latency for production services
+squid_monitored_domains_duration_seconds_p95{environment="prod"}
+
+# P50 (median) latency by service
+squid_monitored_domains_duration_seconds_p50{environment="prod"}
+
+# Cache hit ratio for critical services
+squid_monitored_domains_cache_hit_ratio{critical="true"}
+
+# Monthly bandwidth per team (GB)
+sum by(team) (
+  rate(squid_monitored_domains_bytes_total[1h])
+) * 3600 * 24 * 30 / 1024 / 1024 / 1024
+
+# 404 errors per service
+sum by(service) (
+  rate(squid_monitored_domains_http_responses_total{code="404"}[5m])
+)
+
+# Services with high latency
+squid_monitored_domains_duration_seconds_p99 > 2
 ```
-squid-log-exporter/
-├── main.go          # Entry point
-├── types.go         # Type definitions
-├── config.go        # Configuration handling
-├── collector.go     # Metrics collector
-├── parser.go        # Log parsing logic
-├── metrics.go       # Metrics output
-├── go.mod
-├── go.sum
-└── README.md
+
+### Alerting Examples
+```promql
+# Alert: High error rate
+(
+  sum(rate(squid_monitored_domains_http_responses_total{critical="true",category="5xx"}[5m]))
+  /
+  sum(rate(squid_monitored_domains_http_responses_total{critical="true"}[5m]))
+) > 0.05  # 5% error rate
+
+# Alert: High latency
+squid_monitored_domains_duration_seconds_p95{critical="true"} > 1  # Over 1 second
+
+# Alert: Low cache hit ratio
+squid_monitored_domains_cache_hit_ratio{critical="true"} < 0.5  # Below 50%
+
+# Alert: Too many untracked domains
+(
+  squid_all_domains_requests_total{host="__other__"}
+  /
+  sum(squid_all_domains_requests_total)
+) > 0.2  # Over 20% of traffic is untracked
 ```
 
-## Requirements
+## Architecture
 
-- Go 1.16 or higher
-- Read access to Squid access log file
-- Write access to output directory
-- gopkg.in/yaml.v2 (for domain configuration)
+### Metric Levels
 
-## ToDo
+The exporter provides three levels of metrics:
 
-* Make it a service
-* Better duration statistics
-* Support for custom log formats
+1. **Global metrics** - Aggregate statistics across all traffic
+2. **All domains** - Basic per-domain tracking (limited by `max_domains`)
+3. **Monitored domains** - Extended tracking with custom labels
+
+### Why Two Domain Levels?
+
+- **All domains**: Discover which domains are most active
+- **Monitored domains**: Deep dive into important domains
+
+**Workflow:**
+1. Use `squid_all_domains_requests_total` to find top domains
+2. Add important domains to `monitored_domains` config
+3. Get full metrics including latency and custom labels
+
+### Performance Considerations
+
+- **max_domains**: Limits cardinality for all_domains tracking
+  - Default: 10000 domains
+  - Adjust based on your Prometheus capacity
+  
+- **monitored_domains**: Keep under 100 for optimal performance
+  - Each monitored domain creates multiple time series
+  - Use patterns to reduce configuration
+
+## Migration from 1.x
+
+Version 2.0 removes old redundant metrics and introduces the all_domains/monitored_domains split.
+
+### Breaking Changes
+
+**Removed metrics:**
+- All `*_total` gauge versions (replaced with counter-only metrics)
+- All `*_counter_total` metrics (renamed to `*_total` counters)
+- `squid_http_responses_by_category_total` (aggregate from `squid_http_responses_total` instead)
+- `squid_domain_*` metrics (replaced by `squid_all_domains_*` and `squid_monitored_domains_*`)
+
+**Config changes:**
+- Removed `squid_group` label
+- Added flexible custom `labels` per domain
+
+### Migration Steps
+
+1. **Update configuration**:
+```yaml
+# Old (1.x)
+monitored_domains:
+  - host: "api.example.com"
+    squid_group: "production"  # REMOVED
+
+# New (2.x)
+monitored_domains:
+  - host: "api.example.com"
+    labels:
+      environment: "prod"  # Custom labels
+      service: "api"
+      team: "backend"
+```
+
+2. **Update Grafana queries**:
+```promql
+# Old (gauge)
+squid_connections_total
+
+# New (counter - use rate)
+rate(squid_connections_total[5m])
+
+# Old (counter with _counter_ suffix)
+rate(squid_domain_requests_counter_total{host="api.example.com"}[5m])
+
+# New (cleaner counter name)
+rate(squid_all_domains_requests_total{host="api.example.com"}[5m])
+
+# Old (by category metric)
+rate(squid_http_responses_by_category_total{category="2xx"}[5m])
+
+# New (aggregate from detailed metric)
+sum by(category) (rate(squid_http_responses_total[5m]))
+```
+
+3. **Update alerts** to use new metric names and add `rate()` where needed
+
+## Troubleshooting
+
+### Check position file
+```bash
+cat /var/lib/squid-log-exporter/position.json
+```
+
+### Reset position (re-parse from beginning)
+```bash
+sudo systemctl stop squid-log-exporter
+sudo rm /var/lib/squid-log-exporter/position.json
+sudo systemctl start squid-log-exporter
+```
+
+### Check metrics
+```bash
+# All metrics
+curl localhost:9448/metrics | grep squid_
+
+# Global metrics
+curl localhost:9448/metrics | grep "squid_connections\|squid_http_responses\|squid_cache"
+
+# All domains
+curl localhost:9448/metrics | grep squid_all_domains
+
+# Monitored domains
+curl localhost:9448/metrics | grep squid_monitored_domains
+```
+
+### View logs
+```bash
+journalctl -u squid-log-exporter -f
+```
+
+### Verify log format
+If you see parsing errors, verify your log format configuration:
+```bash
+# Check what format your Squid uses
+sudo head -1 /var/log/squid/access.log
+
+# Test with a single line
+echo "YOUR_LOG_LINE_HERE" > test.log
+./squid-log-exporter --log-file=test.log --config=config.yaml --interval=5s
+```
+
+### Common Issues
+
+**Problem**: `failed to save position: permission denied`
+```bash
+Solution: Ensure position file directory is writable by the exporter user
+
+sudo chown squid-exporter:squid-exporter /var/lib/squid-log-exporter
+sudo chmod 755 /var/lib/squid-log-exporter
+
+# Test permissions
+sudo -u squid-exporter touch /var/lib/squid-log-exporter/test.tmp
+```
+
+**Problem**: Too many time series
+```
+Solution: Reduce max_domains or limit monitored_domains
+```
+
+**Problem**: Missing custom labels in metrics
+```
+Solution: Ensure labels are defined consistently across all monitored_domains
+```
+
+**Problem**: Latency metrics always zero
+```
+Solution: Check that domains are in monitored_domains (not just all_domains)
+```
+
+**Problem**: Large amount of traffic in `__other__` metric
+```
+Solution: Increase max_domains in config:
+  global:
+    max_domains: 50000  # Increase from default 10000
+```
+
+**Problem**: How to see which domains are being aggregated to __other__?
+```
+Solution: Temporarily increase max_domains or check Squid access logs directly.
+Use this query to see tracked domain count:
+  count(squid_all_domains_requests_total{host!="__other__"})
+```
+
+**Problem**: Important domain ending up in __other__
+```
+Solution: Add it to monitored_domains - monitored domains are ALWAYS tracked
+individually regardless of max_domains limit:
+  monitored_domains:
+    - host: "important.example.com"
+      port: "443"
+      labels:
+        critical: "true"
+```
+
+**Problem**: Metrics show scientific notation like `4.239318e+06`
+```
+This is normal for large numbers. It means 4,239,318 (4.2 million).
+Grafana will display these in human-readable format automatically.
+```
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the included license notice for details.
+GNU General Public License v3.0
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Author
-
-Espen Stefansen <espenas+github@gmail.com>
+Pull requests are welcome! Please ensure:
+- Code follows existing style
+- Tests pass
+- Documentation is updated

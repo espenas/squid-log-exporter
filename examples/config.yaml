@@ -1,0 +1,75 @@
+# Global settings
+global:
+  # Track basic metrics for all domains
+  track_all_domains: true
+  
+  # Maximum number of domains to track (safety limit)
+  max_domains: 10000
+
+# log_format not needed - using squid_native as default
+
+# Monitored domains with extended metrics and custom labels
+monitored_domains:
+  # Production API
+  - host: "api.example.com"
+    port: "443"
+    labels:
+      team: "backend"
+      service: "api"
+      environment: "prod"
+      critical: "true"
+      sla: "99.9"
+  
+  # Production Web
+  - host: "www.example.com"
+    port: "443"
+    labels:
+      team: "frontend"
+      service: "web"
+      environment: "prod"
+      critical: "true"
+      sla: "99.5"
+  
+  # CDN
+  - host: "cdn.example.com"
+    port: "443"
+    labels:
+      team: "platform"
+      service: "cdn"
+      environment: "prod"
+      critical: "false"
+  
+  # Staging API
+  - host: "api-staging.example.com"
+    port: "443"
+    labels:
+      team: "backend"
+      service: "api"
+      environment: "staging"
+      critical: "false"
+  
+  # Internal services
+  - host: "internal.example.com"
+    port: "443"
+    labels:
+      team: "platform"
+      service: "internal"
+      environment: "prod"
+      critical: "false"
+
+# Pattern-based monitoring (for bulk configurations)
+domain_patterns:
+  # All production subdomains
+  - pattern: "*.prod.example.com"
+    labels:
+      environment: "prod"
+  
+  # All staging subdomains
+  - pattern: "*.staging.example.com"
+    labels:
+      environment: "staging"
+  
+  # All internal services
+  - pattern: "*.internal.example.com"
+    labels:
+      network: "internal"
